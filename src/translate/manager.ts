@@ -99,8 +99,11 @@ export async function cachedTranslate(text: string, opts?: ITranslateOptions, pe
 
     if (persist && persistentTranslateCache.has(key)) {
         const result = persistentTranslateCache.get(key) || '';
-        sessionTranslateCache.set(key, result);
-        return result;
+        if (!(text.includes("\n") && !result.includes("\n"))) {
+            sessionTranslateCache.set(key, result);
+            return result;
+        }
+        persistentTranslateCache.delete(key);
     }
 
     if (pendingTranslateTasks.has(key)) {

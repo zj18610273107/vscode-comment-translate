@@ -135,13 +135,18 @@ export async function compileBlock(block: ICommentBlock, languageId: string, tar
 
             // Some translation services collapse multiline input into one line.
             // Translate each source line separately so comment formatting can be restored.
-            if (validTexts.length > 1 && translatedText && !translatedText.includes('\n')) {
+            if (validText.includes('\n') && translatedText && !translatedText.includes('\n')) {
                 const lineTranslations = await Promise.all(
-                    validTexts.map(text => autoMutualTranslate(text, { to: targetLanguage }, true))
+                    validText.split('\n').map(text => autoMutualTranslate(text, { to: targetLanguage }, true))
                 );
                 if (lineTranslations.every(Boolean)) {
                     translatedText = lineTranslations.join('\n');
                 }
+            }
+
+            if (tokens.length === 1 && translatedText.includes('\n')) {
+                const { text, ignoreStart = 0, ignoreEnd = 0 } = tokens[0];
+                translatedText = text.slice(0, ignoreStart) + translatedText + text.slice(text.length - ignoreEnd);
             }
 
             // Reassemble the translation results to restore the filtered matches when translated, such as/* //, etc.

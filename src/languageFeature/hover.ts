@@ -52,6 +52,11 @@ async function commentProvideHover(
     }
 
     if (block) {
+        // Block comments are translated as the original selected region so
+        // every line prefix and newline follows the selection behavior.
+        if (!selectedBlock && block.comment.includes("\n")) {
+            block = { ...block, tokens: undefined };
+        }
         const translatedBlock = await compileBlock(block, document.languageId);
         const { translatedText, translateLink, humanizeText } = translatedBlock;
         range = block.range;
