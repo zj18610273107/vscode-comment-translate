@@ -12,12 +12,11 @@ import {
     window,
 } from "vscode";
 import { getConfig } from "../configuration";
-import { /* client,*/  outputChannel } from "../extension";
 import { compileBlock } from "../syntax/compile";
-import { compileMarkdown, getMarkdownTextValue } from "../syntax/marked";
+import { getMarkdownTextValue } from "../syntax/marked";
 import { ICommentBlock } from "../interface";
 import { createComment } from "../syntax/Comment";
-import { createHoverMarkdownString } from "./hoverUtil";
+import { createHoverMarkdownString, createTranslationMarkdown } from "./hoverUtil";
 
 // export let shortLive = new ShortLive<string>((prev, curr) => prev === curr);
 let last: Map<string, Range> = new Map();
@@ -28,52 +27,29 @@ async function commentProvideHover(
     document: TextDocument,
     position: Position,
     _token: CancellationToken,
-    canLanguages: string[],
+    _canLanguages: string[],
 ): Promise<Hover | null> {
     const uri = document.uri.toString();
 
-    const concise = getConfig<boolean>("hover.concise");
     const nearShow = getConfig<boolean>("hover.nearShow");
 
 
 
-    let block: ICommentBlock | null = selectionContains(uri, position);
+    const selectedBlock = selectionContains(uri, position);
+    let block: ICommentBlock | null = selectedBlock;
     let res: { md: MarkdownString, header: MarkdownString } | undefined;
     let range: Range | undefined;
 
+    // Translation is explicitly triggered by a selected range (double-click or drag).
+    // Plain pointer hovering keeps the official VS Code hover behavior.
     if (!block) {
-        if (concise) {
-            return null;
+        if (_canLanguages.includes(document.languageId)) {
+            const comment = await createComment();
+            block = await comment.getComment(document, position);
         }
-
-        if (canLanguages.includes(document.languageId)) {
-            try {
-                let comment = await createComment();
-                block = await comment.getComment(document, position);
-            } catch (e) {
-                //@ts-ignore
-                outputChannel.append("\n" + e.message);
-            }
-
-            if (!block && document.languageId !== "markdown") {
-                return null;
-            }
-        }
-
-        if (!block && document.languageId === "markdown") {
-            let { translatedText, range: MarkdwonRange } = await compileMarkdown(document, position);
-            res = createHoverMarkdownString(
-                translatedText,
-                '',
-                uri,
-                MarkdwonRange,
-                document,
-                ''
-            );
-            range = MarkdwonRange;
-        }
+        if (!block) return null;
+        if (_token.isCancellationRequested) return null;
     }
-
 
     if (block) {
         const translatedBlock = await compileBlock(block, document.languageId);
@@ -159,7 +135,10 @@ async function translateTypeLanguageProvideHover(
         let hasTranslated = false;
         let temp: MarkdownString[] = [];
         for (let j = 0; j < hover.contents.length; j += 1) {
-            let md = new MarkdownString(translateds[i].result, true);
+            let md = createTranslationMarkdown(
+                translateds[i].result,
+                document.languageId
+            );
             md.isTrusted = true;
             temp.push(md);
             if (translateds[i].hasTranslated === true) {

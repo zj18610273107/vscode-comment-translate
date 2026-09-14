@@ -1,12 +1,14 @@
 import { ITranslateOptions, TranslateManager } from "comment-translate-manager";
 import { getConfig, onConfigChange } from "../configuration";
-import { env, ExtensionContext } from "vscode";
+import { env, ExtensionContext, workspace } from "vscode";
 import { ITranslateConfig, TranslateExtensionProvider } from "./translateExtension";
 import { GoogleTranslate } from "./GoogleTranslate";
 import { BingTranslate } from "./BingTranslate";
 import { detectLanguage } from "../lang";
 import { CopilotTranslate } from "./CopilotTranslate";
 import { TranSmartTranslate } from "./TranSmartTranslate";
+import * as fs from "fs";
+import * as path from "path";
 
 
 export let translateManager: TranslateManager;
@@ -15,6 +17,55 @@ export let translateExtensionProvider: TranslateExtensionProvider
 const sessionTranslateCache = new Map<string, string>();
 const pendingTranslateTasks = new Map<string, Promise<string>>();
 const MAX_SESSION_CACHE_SIZE = 1000;
+const persistentTranslateCache = new Map<string, string>();
+let persistentCacheLoaded = false;
+let persistentCacheWrite: Promise<void> = Promise.resolve();
+let persistentCacheIndex = 0;
+const PERSISTENT_CACHE_LIMIT = 30 * 1024 * 1024;
+const PERSISTENT_CACHE_FILES = 3;
+
+function persistentCachePath(index: number) {
+    const root = workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd();
+    return path.join(root, "build", `Comment-Translate.${index}.db`);
+}
+
+export function getCachedTranslation(text: string, opts?: ITranslateOptions): string | undefined {
+    loadPersistentCache();
+    const key = buildTranslateCacheKey(text, opts);
+    return sessionTranslateCache.get(key) ?? persistentTranslateCache.get(key);
+}
+
+function loadPersistentCache() {
+    if (persistentCacheLoaded) return;
+    persistentCacheLoaded = true;
+    try {
+        for (let index = 0; index < PERSISTENT_CACHE_FILES; index += 1) {
+            const file = persistentCachePath(index);
+            if (!fs.existsSync(file)) continue;
+            const data = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, string>;
+            Object.entries(data).forEach(([key, value]) => persistentTranslateCache.set(key, value));
+            const currentFile = persistentCachePath(persistentCacheIndex);
+            if (!fs.existsSync(currentFile) || fs.statSync(file).mtimeMs > fs.statSync(currentFile).mtimeMs) {
+                persistentCacheIndex = index;
+            }
+        }
+    } catch {
+        // Missing or invalid cache files are treated as empty caches.
+    }
+}
+
+function savePersistentCache() {
+    const data = JSON.stringify(Object.fromEntries(persistentTranslateCache), null, 2);
+    persistentCacheWrite = persistentCacheWrite.then(async () => {
+        let file = persistentCachePath(persistentCacheIndex);
+        if (Buffer.byteLength(data, "utf8") > PERSISTENT_CACHE_LIMIT) {
+            persistentCacheIndex = (persistentCacheIndex + 1) % PERSISTENT_CACHE_FILES;
+            file = persistentCachePath(persistentCacheIndex);
+        }
+        await fs.promises.mkdir(path.dirname(file), { recursive: true });
+        await fs.promises.writeFile(file, data, "utf8");
+    }).catch(() => undefined);
+}
 
 function trimSessionCache() {
     if (sessionTranslateCache.size <= MAX_SESSION_CACHE_SIZE) {
@@ -39,10 +90,17 @@ function buildTranslateCacheKey(text: string, opts?: ITranslateOptions) {
     return `${sourceProvider}|${from}|${to}|${text}`;
 }
 
-export async function cachedTranslate(text: string, opts?: ITranslateOptions): Promise<string> {
+export async function cachedTranslate(text: string, opts?: ITranslateOptions, persist = false): Promise<string> {
+    loadPersistentCache();
     const key = buildTranslateCacheKey(text, opts);
     if (sessionTranslateCache.has(key)) {
         return sessionTranslateCache.get(key) || '';
+    }
+
+    if (persist && persistentTranslateCache.has(key)) {
+        const result = persistentTranslateCache.get(key) || '';
+        sessionTranslateCache.set(key, result);
+        return result;
     }
 
     if (pendingTranslateTasks.has(key)) {
@@ -52,6 +110,10 @@ export async function cachedTranslate(text: string, opts?: ITranslateOptions): P
     const task = translateManager.translate(text, opts)
         .then((result) => {
             sessionTranslateCache.set(key, result);
+            if (persist) {
+                persistentTranslateCache.set(key, result);
+                savePersistentCache();
+            }
             trimSessionCache();
             return result;
         })
@@ -127,7 +189,7 @@ export function initTranslate(context: ExtensionContext) {
  * @param opts Select target and source languages for translation
  * @returns Translated text
  */
-export async function autoMutualTranslate(text: string, opts?: ITranslateOptions): Promise<string> {
+export async function autoMutualTranslate(text: string, opts?: ITranslateOptions, persist = false): Promise<string> {
     let targetLanguage = opts?.to || translateManager.opts.to || 'auto';
     let sourceLanguage = opts?.from || translateManager.opts.from || 'en';
 
@@ -141,7 +203,7 @@ export async function autoMutualTranslate(text: string, opts?: ITranslateOptions
         }
     }
 
-    return cachedTranslate(text, { from: opts?.from, to: targetLanguage });
+    return cachedTranslate(text, { from: opts?.from, to: targetLanguage }, persist);
 }
 
 

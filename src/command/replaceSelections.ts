@@ -4,14 +4,14 @@ import { ctx, outputChannel } from "../extension";
 // import * as changeCase from "change-case";
 import humanizeString = require("humanize-string");
 import { franc } from 'franc'
-import { translateManager } from "../translate/manager";
+import { translateManager, cachedTranslate } from "../translate/manager";
 import { createComment } from "../syntax/Comment";
 
 const changeCase = require("change-case");
 
 async function translateSelection(text: string, selection: Selection, targetLanguage: string) {
     // let translation = await client.sendRequest<string>('translate', { text, targetLanguage });
-    let translatedText = await translateManager.translate(text, { to: targetLanguage });
+    let translatedText = await cachedTranslate(text, { to: targetLanguage }, true);
     return { translatedText, selection };
 }
 

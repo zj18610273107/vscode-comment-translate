@@ -1,6 +1,15 @@
 import { MarkdownString, Range } from "vscode";
 import { getConfig } from "../configuration";
 
+export function createTranslationMarkdown(
+    translatedText: string,
+    languageId: string
+): MarkdownString {
+    const md = new MarkdownString();
+    md.appendCodeblock(translatedText.replace(/\r\n/g, "\n"), languageId);
+    return md;
+}
+
 export function createHoverMarkdownString(
     translatedText: string,
     humanizeText: string | undefined,
@@ -40,10 +49,7 @@ export function createHoverMarkdownString(
     if (humanizeText) {
         showText = `${humanizeText} => ${translatedText}`;
     }
-    const codeDefine = "```";
-    let md = new MarkdownString(
-        `${codeDefine}${document.languageId}\n${showText}\n ${codeDefine}`
-    );
+    let md = createTranslationMarkdown(showText, document.languageId);
     if (!translatedText) {
         md = new MarkdownString(
             `**Translate Error**: Check [OutputPannel](command:commentTranslate._openOutputPannel "open output pannel") for details.`

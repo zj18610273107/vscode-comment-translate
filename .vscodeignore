@@ -4,4 +4,5 @@ node_modules
 doc
 dist/**/*.js.map
 coverage
+build
 test

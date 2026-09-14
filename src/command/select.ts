@@ -53,7 +53,7 @@ export function mouseToSelect(context: ExtensionContext) {
             laterTime = Math.max(600 - gap, 300);
         }
         clearTimeout(showHoverTimer);
-        showHoverTimer = setTimeout(() => {
+        showHoverTimer = setTimeout(async () => {
             let selectionText = e.textEditor.document.getText(selections[0]);
             if (selectionText.length > 1000) return;
             if (isCode(selectionText)) return;
@@ -62,5 +62,3 @@ export function mouseToSelect(context: ExtensionContext) {
         }, laterTime);
     }));
 }
-
-
